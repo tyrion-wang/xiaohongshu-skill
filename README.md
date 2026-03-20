@@ -17,7 +17,8 @@
 - **内容检索与详情读取**：支持搜索笔记并获取指定笔记详情（含评论数据）
 - **笔记评论**：支持按 `feed_id + xsec_token` 对指定笔记发表一级评论
 - **通知评论抓取**：支持在 `/notification` 页面抓取 `you/mentions` 接口返回
-- **内容数据看板抓取**：支持抓取“笔记基础信息”表（曝光/观看/点赞等）并导出 CSV
+- **内容数据看板抓取**：支持抓取"笔记基础信息"表（曝光/观看/点赞等）并导出 CSV
+- **长文发布**：支持发布小红书长文（图文笔记），支持 HTML 格式（标题、列表、引用等）
 
 ## 安装
 
@@ -162,7 +163,7 @@ python scripts/cdp_publish.py post-comment-to-feed \
     --xsec-token YOUR_XSEC_TOKEN \
     --content "写得很实用，感谢分享！"
 
-# 抓取“评论和@”通知接口（you/mentions）
+# 抓取"评论和@"通知接口（you/mentions）
 python scripts/cdp_publish.py get-notification-mentions
 ```
 
@@ -171,7 +172,7 @@ python scripts/cdp_publish.py get-notification-mentions
 ### 6. 获取内容数据表（content_data）
 
 ```bash
-# 抓取“笔记基础信息”数据表
+# 抓取"笔记基础信息"数据表
 python scripts/cdp_publish.py content-data
 
 # 下划线别名
@@ -185,7 +186,7 @@ python scripts/cdp_publish.py content-data --csv-file "/abs/path/content_data.cs
 
 ### 话题标签（publish_pipeline.py）
 
-- 从正文中提取规则：若“最后一个非空行”全部由 `#标签` 组成，则提取为话题标签并从正文移除。
+- 从正文中提取规则：若"最后一个非空行"全部由 `#标签` 组成，则提取为话题标签并从正文移除。
 - 标签输入策略：逐个输入 `#标签`，等待 `3` 秒，再发送 `Enter` 进行确认。
 - 建议数量：`1-10` 个标签；超过平台限制时请手动精简。
 - 示例（正文最后一行）：`#春招 #26届 #校招 #春招规划 #面试`
@@ -264,7 +265,7 @@ python scripts/cdp_publish.py switch-account
 ```
 
 说明：`search-feeds`、`get-feed-detail`、`post-comment-to-feed` 与 `get-notification-mentions` 会校验 `xiaohongshu.com` 主页登录态（非创作者中心登录态）。
-说明：登录态检查默认启用本地缓存（12 小时，仅缓存“已登录”结果），到期后自动重新走网页校验。
+说明：登录态检查默认启用本地缓存（12 小时，仅缓存"已登录"结果），到期后自动重新走网页校验。
 说明：`search-feeds` 输出新增 `recommended_keywords_count` 与 `recommended_keywords` 字段，表示输入关键词后回车前的下拉推荐词。
 说明：`content-data` 会校验创作者中心登录态，并抓取 `statistics/data-analysis` 页面中的笔记基础信息表。
 

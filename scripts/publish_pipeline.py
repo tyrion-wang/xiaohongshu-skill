@@ -9,6 +9,10 @@ Usage:
     python publish_pipeline.py --title "标题" --content "正文" --image-urls URL1 URL2
     python publish_pipeline.py --title-file t.txt --content-file body.txt --image-urls URL1
 
+    # Publish a long-form article (no images required)
+    python publish_pipeline.py --article --title "标题" --content "正文内容"
+    python publish_pipeline.py --article --title-file t.txt --content-file body.txt --description "短描述"
+
     # Fill form only for manual review (preview mode)
     python publish_pipeline.py --title "标题" --content "正文" --image-urls URL1 --preview
 
@@ -67,6 +71,7 @@ from chrome_launcher import ensure_chrome, restart_chrome
 from cdp_publish import XiaohongshuPublisher, CDPError
 from image_downloader import ImageDownloader
 from run_lock import SingleInstanceError, single_instance
+from publish_article import ArticlePublisher
 
 
 MAX_TIMING_JITTER_RATIO = 0.7
@@ -151,6 +156,42 @@ def _extract_topic_tags_from_last_line(content: str) -> tuple[str, list[str]]:
 
     body = "\n".join(lines[:-1]).strip()
     return body, parts
+
+
+def _check_html_format(content: str) -> tuple[bool, list[str]]:
+    """Check if content uses proper HTML format for long-form articles.
+    
+    Returns:
+        (is_valid, warnings)
+    """
+    warnings = []
+    
+    # Check for Markdown patterns that should be HTML
+    markdown_patterns = [
+        (r"^#{1,6}\s", "Markdown heading (## Title)"),
+        (r"^\s*[-*+]\s", "Markdown list (- item)"),
+        (r"^\s*\d+\.\s", "Markdown numbered list (1. item)"),
+        (r">\s", "Markdown quote (> quote)"),
+        (r"\*\*[^*]+\*\*", "Markdown bold (**text**)"),
+        (r"__[^_]+__", "Markdown bold (__text__)"),
+        (r"`[^`]+`", "Markdown code (`code`)"),
+        (r"\[([^\]]+)\]\(([^)]+)\)", "Markdown link ([text](url))"),
+    ]
+    
+    for pattern, desc in markdown_patterns:
+        if re.search(pattern, content, re.MULTILINE):
+            warnings.append(f"⚠️  Detected {desc}. Use HTML format instead.")
+    
+    # Check for HTML tags (good)
+    html_tags = ["<h1", "<h2", "<h3", "<p>", "<ul", "<ol", "<li", "<blockquote", "<strong", "<b>", "<u>", "<hr", "<br"]
+    has_html = any(tag in content.lower() for tag in html_tags)
+    
+    if not has_html and len(content) > 100:
+        warnings.append("⚠️  No HTML tags detected. Long-form articles require HTML format (<p>, <h1>, <ul>, etc.)")
+        warnings.append("💡 Example: <h1>Title</h1><p>Paragraph</p><ul><li>Item</li></ul>")
+    
+    is_valid = len(warnings) == 0
+    return is_valid, warnings
 
 
 def _verify_local_files_exist(
@@ -323,8 +364,8 @@ def main():
         help="Timer for publishing on note",
     )
 
-    # Media: images OR video (mutually exclusive)
-    media_group = parser.add_mutually_exclusive_group(required=True)
+    # Media: images OR video (mutually exclusive), or --article for no media
+    media_group = parser.add_mutually_exclusive_group()
     media_group.add_argument(
         "--image-urls", nargs="+", help="Image URLs to download"
     )
@@ -336,6 +377,34 @@ def main():
     )
     media_group.add_argument(
         "--video-url", help="Video URL to download"
+    )
+
+    # Article mode (no media required)
+    parser.add_argument(
+        "--article",
+        action="store_true",
+        default=False,
+        help="Publish as long-form article (no images/videos required)",
+    )
+
+    # Description for article mode
+    parser.add_argument(
+        "--description",
+        default=None,
+        help="Short description for article mode (displayed on note card)",
+    )
+    parser.add_argument(
+        "--description-file",
+        default=None,
+        help="Read description from UTF-8 file for article mode",
+    )
+
+    # Visibility setting
+    parser.add_argument(
+        "--visibility",
+        choices=["public", "private"],
+        default="public",
+        help="Note visibility: public (default) or private (only yourself)",
     )
 
     # Publish mode
@@ -466,6 +535,14 @@ def main():
             f"{' '.join(topic_tags)}"
         )
 
+    # --- Resolve description (for article mode) ---
+    description = ""
+    if args.description_file:
+        with open(args.description_file, encoding="utf-8") as f:
+            description = f.read().strip()
+    elif args.description:
+        description = args.description
+
     # --- Step 1: Ensure Chrome is running ---
     mode_label = "headless" if headless else "headed"
     account_label = cache_account_name
@@ -519,15 +596,34 @@ def main():
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(2)
 
-    # --- Determine publish mode: video or image ---
+    # --- Determine publish mode: article, video or image ---
+    is_article_mode = args.article
     is_video_mode = bool(args.video or args.video_url)
 
-    # --- Step 3: Prepare media ---
+    # --- Step 3: Prepare media (skip for article mode) ---
     image_paths = []
     video_path = None
     downloader = None
 
-    if is_video_mode:
+    if is_article_mode:
+        print("[pipeline] Step 3: Article mode - no media preparation needed.")
+        
+        # Check HTML format for long-form articles
+        is_valid, warnings = _check_html_format(content)
+        if warnings:
+            print("\n" + "="*60)
+            print("[WARNING] Long-form article content format check:")
+            for warning in warnings:
+                print(f"  {warning}")
+            print("="*60 + "\n")
+            
+            if not is_valid:
+                print("[WARNING] Content may not render correctly on mobile!")
+                print("[WARNING] Please use HTML format: <h1>, <h2>, <p>, <ul>, <ol>, <li>, <blockquote>, <strong>, <u>, <hr>")
+                print("[WARNING] Markdown format (##, -, 1., >, **) will display as plain text!")
+                print("\nContinue anyway? (The script will proceed in 5 seconds...)")
+                time.sleep(5)
+    elif is_video_mode:
         if args.video_url:
             print("[pipeline] Step 3: Downloading video...")
             downloader = ImageDownloader(temp_dir=args.temp_dir)
@@ -550,7 +646,7 @@ def main():
         if not image_paths:
             print("Error: All image downloads failed.", file=sys.stderr)
             sys.exit(2)
-    else:
+    elif args.images:
         image_paths = args.images
         _verify_local_files_exist(
             file_paths=image_paths,
@@ -558,20 +654,42 @@ def main():
             skip_file_check=args.skip_file_check,
         )
         print(f"[pipeline] Step 3: Using {len(image_paths)} local image(s).")
+    else:
+        print("Error: No media specified (use --article for long-form articles).", file=sys.stderr)
+        sys.exit(2)
 
     # --- Step 4: Fill form ---
     print("[pipeline] Step 4: Filling form...")
     try:
-        if is_video_mode:
+        if is_article_mode:
+            # Use ArticlePublisher for long-form articles
+            article_publisher = ArticlePublisher(publisher, timing_jitter=timing_jitter)
+            result = article_publisher.publish_article(
+                title=title,
+                content=content,
+                description=description,
+                topic_tags=topic_tags,
+                visibility=args.visibility,
+                preview=args.preview,
+            )
+            if result.get("status") == "PUBLISHED":
+                print("PUBLISH_STATUS: PUBLISHED")
+                if result.get("note_link"):
+                    print(f"[pipeline] Note published at: {result['note_link']}")
+            else:
+                print("FILL_STATUS: READY_TO_PUBLISH")
+        elif is_video_mode:
             publisher.publish_video(
                 title=title, content=content, video_path=video_path
             )
+            _select_topics(publisher, topic_tags, timing_jitter=timing_jitter)
+            print("FILL_STATUS: READY_TO_PUBLISH")
         else:
             publisher.publish(
                 title=title, content=content, image_paths=image_paths, post_time=post_time
             )
-        _select_topics(publisher, topic_tags, timing_jitter=timing_jitter)
-        print("FILL_STATUS: READY_TO_PUBLISH")
+            _select_topics(publisher, topic_tags, timing_jitter=timing_jitter)
+            print("FILL_STATUS: READY_TO_PUBLISH")
     except CDPError as e:
         print(f"Error during form fill: {e}", file=sys.stderr)
         if downloader:
@@ -579,11 +697,14 @@ def main():
         sys.exit(2)
 
     # --- Step 5: Publish (optional) ---
-    should_publish = not args.preview
+    # Note: Article mode handles publish click internally in publish_article()
+    should_publish = not args.preview and not is_article_mode
     if args.auto_publish:
         print("[pipeline] --auto-publish is now default and can be omitted.")
     if args.preview:
         print("[pipeline] Preview mode is on, skipping publish click.")
+    if is_article_mode:
+        print("[pipeline] Article mode: publish handled by ArticlePublisher.")
 
     if should_publish:
         print("[pipeline] Step 5: Clicking publish button...")
