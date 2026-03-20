@@ -10,13 +10,19 @@ metadata:
 
 # Post-to-xhs
 
-你是“小红书发布助手”。目标是在用户确认后，调用本 Skill 的脚本完成发布。
+你是"小红书发布助手"。目标是在用户确认后，调用本 Skill 的脚本完成发布。
+
+## 📚 文档导航
+
+- **本文件**：基础发布流程（图文/视频/长文）
+- **[定时发布+实时通知](docs/scheduled-publish-with-notifications.md)**：自动化定时发布方案（含Discord实时通知）
+- **长文发布说明**：HTML格式要求、可见性设置等
 
 ## 输入判断
 
 优先按以下顺序判断：
 1. 用户明确要求"测试浏览器 / 启动浏览器 / 检查登录 / 只打开不发布"：进入测试浏览器流程。
-2. 用户要求“搜索笔记 / 找内容 / 查看某篇笔记详情 / 查看内容数据表 / 给帖子评论 / 查看评论和@通知”：进入内容检索与互动流程（`search-feeds` / `get-feed-detail` / `post-comment-to-feed` / `get-notification-mentions` / `content-data`）。
+2. 用户要求"搜索笔记 / 找内容 / 查看某篇笔记详情 / 查看内容数据表 / 给帖子评论 / 查看评论和@通知"：进入内容检索与互动流程（`search-feeds` / `get-feed-detail` / `post-comment-to-feed` / `get-notification-mentions` / `content-data`）。
 3. 用户已提供 `标题 + 正文 + 视频(本地路径或URL)`：直接进入视频发布流程。
 4. 用户已提供 `标题 + 正文 + 图片(本地路径或URL)`：直接进入图文发布流程。
 5. 用户只提供网页 URL：先提取网页内容与图片/视频，再给出可发布草稿，等待用户确认。
@@ -46,12 +52,16 @@ metadata:
 3. 执行发布命令（默认无头）。
 4. 回传执行结果（成功/失败 + 关键信息）。
 
-## 视频发布流程
+## 长文发布流程
 
-1. 准备输入（标题、正文、视频文件路径或 URL）。
-2. 如需文件输入，先写入 `title.txt`、`content.txt`。
-3. 执行视频发布命令（默认无头）。视频上传后需等待处理完成。
-4. 回传执行结果（成功/失败 + 关键信息）。
+1. 准备输入（标题、正文内容）。
+2. 可选：准备短描述和话题标签（描述显示在笔记卡片上，话题标签在最后一行以 `#标签` 格式）。
+3. 如需文件输入，先写入 `title.txt`、`content.txt`、`description.txt`（可选）。
+4. 执行长文发布命令（默认无头）。
+5. 回传执行结果（成功/失败 + 关键信息）。
+
+长文发布完整流程：
+- 进入长文编辑器 → 填写标题和正文 → 一键排版 → 选择模板 → 下一步 → 填写描述和话题标签 → 发布
 
 ## 内容检索与互动流程（搜索/详情/评论/内容数据）
 
@@ -59,8 +69,8 @@ metadata:
 2. 执行 `search-feeds` 获取笔记列表（默认会先抓取搜索下拉推荐词，结果字段为 `recommended_keywords`）。
 3. 若用户需要详情，从搜索结果中取 `id` + `xsecToken` 再执行 `get-feed-detail`。
 4. 若用户需要发表评论，执行 `post-comment-to-feed`（一级评论；必填 `feed_id` / `xsec_token` / `content`）。
-5. 若用户需要“评论和@通知”，执行 `get-notification-mentions` 抓取 `/notification` 页面对应的 `you/mentions` 接口返回。
-6. 若用户需要“笔记基础信息表”，执行 `content-data` 获取曝光/观看/点赞等指标。
+5. 若用户需要"评论和@通知"，执行 `get-notification-mentions` 抓取 `/notification` 页面对应的 `you/mentions` 接口返回。
+6. 若用户需要"笔记基础信息表"，执行 `content-data` 获取曝光/观看/点赞等指标。
 7. 回传结构化结果（数量、核心字段、链接）。
 
 ## 常用命令
@@ -221,6 +231,60 @@ python scripts/publish_pipeline.py  --title-file title.txt \
   --video-url "https://example.com/video.mp4"
 ```
 
+### 3.7) 长文发布（无图片/视频）
+
+```bash
+# 基础长文发布
+python scripts/publish_pipeline.py --article \
+  --title-file title.txt \
+  --content-file content.txt
+
+# 带短描述和话题标签（话题标签放在 content.txt 最后一行，格式：#标签1 #标签2）
+python scripts/publish_pipeline.py --article \
+  --title-file title.txt \
+  --content-file content.txt \
+  --description-file description.txt
+
+# 设置为仅自己可见（用于测试，避免影响账号）
+python scripts/publish_pipeline.py --article \
+  --title-file title.txt \
+  --content-file content.txt \
+  --visibility private
+
+# 直接命令行传入（适合简短内容）
+python scripts/publish_pipeline.py --article \
+  --title "长文发布测试" \
+  --content "这是一篇测试长文内容。#openclaw #测试"
+
+# 无头模式发布
+python scripts/publish_pipeline.py --article --headless \
+  --title-file title.txt \
+  --content-file content.txt \
+  --description "短描述显示在卡片上"
+```
+
+长文发布说明：
+- 长文不需要图片或视频
+- ⚠️ **内容必须使用 HTML 格式**（段落用 `<p>` 包裹，标题用 `<h1>` `<h2>`，列表用 `<ul>` `<ol>` `<li>`）
+- ❌ **切勿使用 Markdown 格式**（如 `##` `-` `1.` `**` 等），否则发布后格式会全部丢失，显示为纯文本！
+- 话题标签放在 `content.txt` 最后一行，格式：`#标签1 #标签2`
+- 描述是短文本，显示在笔记卡片上（可选）
+- **可见性设置**：使用 `--visibility private` 设置为仅自己可见，适合测试发布
+- **定时发布**：参考 [定时发布+实时通知方案](docs/scheduled-publish-with-notifications.md)
+- 发布流程：编辑器 → 一键排版 → 选择模板 → 下一步 → 描述/话题 → 可见性设置 → 发布
+
+**HTML 格式示例：**
+```html
+<h1>一级标题</h1>
+<p>正文段落</p>
+<ul><li>无序列表项</li></ul>
+<ol><li>有序列表项</li></ol>
+<blockquote>引用内容</blockquote>
+<p><strong>加粗文字</strong></p>
+<hr>
+#话题标签1 #话题标签2
+```
+
 ### 4) 多账号发布 /切换
 
 ```bash
@@ -246,7 +310,7 @@ python scripts/cdp_publish.py get-feed-detail \
 ```
 
 说明：`search-feeds` 输出中包含 `recommended_keywords_count` 与 `recommended_keywords`，表示回车前搜索框下拉推荐词。
-说明：`check-login` 与主页登录检查默认启用本地缓存（12h，仅缓存“已登录”），到期后自动重新网页校验。
+说明：`check-login` 与主页登录检查默认启用本地缓存（12h，仅缓存"已登录"），到期后自动重新网页校验。
 
 ### 6) 给笔记发表评论（一级评论）
 
